@@ -49,6 +49,7 @@ sealed class Seite {
     data class Bearbeiten(val g: Geraet) : Seite()
     data class Offen(val g: Geraet) : Seite()
     object Info : Seite()
+    object Scan : Seite()
 }
 
 class MainActivity : ComponentActivity() {
@@ -101,6 +102,7 @@ fun App() {
             bearbeiten = { seite = Seite.Bearbeiten(it) },
             neu = { seite = Seite.Bearbeiten(Geraet(name = "", host = "")) },
             info = { seite = Seite.Info },
+            scannen = { seite = Seite.Scan },
         )
         is Seite.Bearbeiten -> {
             BackHandler { seite = Seite.Liste }
@@ -112,6 +114,7 @@ fun App() {
         is Seite.Offen -> GeraetAnsicht(s.g,
             aendern = { g -> Speicher.setzen(ctx, g); geraete = Speicher.geraete(ctx) },
             zurueck = { geraete = Speicher.geraete(ctx); seite = Seite.Liste })
+        is Seite.Scan -> ScanSeite(hinzufuegen = { seite = Seite.Bearbeiten(it) }, zurueck = { seite = Seite.Liste })
         is Seite.Info -> {
             BackHandler { seite = Seite.Liste }
             InfoSeite(zurueck = { seite = Seite.Liste })
@@ -122,12 +125,25 @@ fun App() {
 @Composable
 fun GeraeteListe(
     geraete: List<Geraet>, update: Aktualisierung.Neu?, beiUpdate: (Aktualisierung.Neu) -> Unit,
-    oeffnen: (Geraet) -> Unit, bearbeiten: (Geraet) -> Unit, neu: () -> Unit, info: () -> Unit,
+    oeffnen: (Geraet) -> Unit, bearbeiten: (Geraet) -> Unit, neu: () -> Unit, info: () -> Unit, scannen: () -> Unit,
 ) {
+    // Erreichbarkeit der gespeicherten Geräte (SSH, ADB)
+    var status by remember { mutableStateOf<Map<String, Pair<Boolean, Boolean>>>(emptyMap()) }
+    var pruefRunde by remember { mutableStateOf(0) }
+    LaunchedEffect(geraete, pruefRunde) {
+        status = emptyMap()
+        for (g in geraete) {
+            launch { val r = Scan.erreichbar(g); status = status + (g.id to r) }
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(title = { Text("ADB Box", fontWeight = FontWeight.Bold) },
-                actions = { IconButton(onClick = info) { Icon(Icons.Default.Info, "Info") } })
+                actions = {
+                    IconButton(onClick = { pruefRunde++ }) { Icon(Icons.Default.Refresh, "Erreichbarkeit prüfen") }
+                    IconButton(onClick = scannen) { Icon(Icons.Default.Search, "Netzwerk scannen") }
+                    IconButton(onClick = info) { Icon(Icons.Default.Info, "Info") }
+                })
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(onClick = neu, icon = { Icon(Icons.Default.Add, null) }, text = { Text("Gerät") })
@@ -140,14 +156,27 @@ fun GeraeteListe(
                 }
             }
             if (geraete.isEmpty()) item {
-                Text("Noch kein Gerät. Tippe unten auf „Gerät“ und trag z. B. dein S8+ mit seiner Tailscale-Adresse ein.", color = Color.LightGray)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Noch kein Gerät. Tippe unten auf „Gerät“ und trag z. B. dein S8+ mit seiner Tailscale-Adresse ein – oder such im WLAN:", color = Color.LightGray)
+                    Button(onClick = scannen) { Text("Netzwerk scannen") }
+                }
             }
             items(geraete, key = { it.id }) { g ->
                 Card(Modifier.fillMaxWidth().clickable { oeffnen(g) }) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        val st = status[g.id]
+                        val farbe = when {
+                            st == null -> Color.Gray
+                            st.first || st.second -> GRUEN
+                            else -> Color(0xFFFF6A6A)
+                        }
+                        Text("●", color = farbe, fontSize = 22.sp, modifier = Modifier.padding(end = 12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(g.name.ifBlank { g.host }, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                             Text("${g.host} · SSH ${g.sshPort} · ADB ${g.adbPort}", color = Color.LightGray, fontSize = 13.sp)
+                            if (st != null) Text(
+                                if (!st.first && !st.second) "nicht erreichbar" else listOfNotNull(if (st.first) "SSH online" else null, if (st.second) "ADB online" else null).joinToString(" · "),
+                                color = farbe, fontSize = 12.sp)
                         }
                         IconButton(onClick = { bearbeiten(g) }) { Icon(Icons.Default.Edit, "Bearbeiten") }
                     }
