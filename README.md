@@ -9,7 +9,8 @@ Android-App von **[FGSeRaser](https://github.com/FGSeRaser)**, um andere Geräte
 
 ## Einrichtung (z. B. mit Termux)
 1. Termux: `pkg install openssh`, `passwd`, `sshd` (Port 8022)
-2. ADB: USB-Debugging an, nach jedem Neustart einmal per Kabel `adb tcpip 5555`
+2. ADB – entweder klassisch: USB-Debugging an, nach jedem Neustart einmal per Kabel `adb tcpip 5555`
+   – oder ohne Kabel (Android 11+): **Kabelloses Debugging** einschalten und im Gerät bearbeiten mit **Kopplungscode** oder **QR-Code** koppeln. Den wechselnden Port findet ADB Box selbst (mDNS oder Port-Suche).
 3. In der App ein Gerät mit der Tailscale- oder WLAN-Adresse anlegen
 
 Download: [Releases](https://github.com/FGSeRaser/ADB-Box/releases/latest)

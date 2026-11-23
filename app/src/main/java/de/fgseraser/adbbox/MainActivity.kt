@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import de.fgseraser.adbbox.adb.AdbSchluessel
 import de.fgseraser.adbbox.ssh.SshSchluessel
 import de.fgseraser.adbbox.ui.GeraetAnsicht
+import de.fgseraser.adbbox.ui.KabellosBereich
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -216,7 +217,8 @@ fun GeraetBearbeiten(g: Geraet, speichern: (Geraet) -> Unit, loeschen: () -> Uni
             Text("ADB (Bildschirm, Apps)", fontWeight = FontWeight.Bold, color = GRUEN)
             OutlinedTextField(adbPort, { adbPort = it.filter(Char::isDigit) }, label = { Text("ADB-Port") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-            Text("Termux: Port 8022, Benutzer egal. ADB: nach jedem Neustart einmal per Kabel „adb tcpip 5555“.", color = Color.LightGray, fontSize = 13.sp)
+            Text("Termux: Port 8022, Benutzer egal. ADB klassisch: nach jedem Neustart einmal per Kabel „adb tcpip 5555“ – oder ohne Kabel über Kabelloses Debugging (unten).", color = Color.LightGray, fontSize = 13.sp)
+            KabellosBereich(host, { host = it }, { adbPort = it.toString() })
             Button(onClick = {
                 speichern(g.copy(name = name.trim(), host = host, sshPort = sshPort.toIntOrNull() ?: 8022, sshBenutzer = benutzer,
                     sshPasswort = passwort, adbPort = adbPort.toIntOrNull() ?: 5555))

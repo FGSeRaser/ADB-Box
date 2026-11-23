@@ -1,5 +1,6 @@
-// ADB Box – eigene ADB-Verbindung über das Netzwerk (wie "adb connect host:5555").
-// Spricht das ADB-Protokoll direkt: Anmeldung mit RSA-Schlüssel, Ströme für shell:, sync:, localabstract: …
+// ADB Box – eigene ADB-Verbindung über das Netzwerk (wie "adb connect host:port").
+// Spricht das ADB-Protokoll direkt: Anmeldung mit RSA-Schlüssel oder – bei „Kabelloses Debugging“
+// (Android 11+) – per TLS 1.3 nach dem Koppeln. Ströme für shell:, sync:, localabstract: …
 // von FGSeRaser – https://github.com/FGSeRaser
 package de.fgseraser.adbbox.adb
 
@@ -21,7 +22,7 @@ import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
-class AdbVerbindung private constructor(private val sock: Socket) : Closeable {
+class AdbVerbindung private constructor(private var sock: Socket, private val host: String, private val port: Int) : Closeable {
 
     companion object {
         const val CNXN = 0x4e584e43
@@ -30,6 +31,7 @@ class AdbVerbindung private constructor(private val sock: Socket) : Closeable {
         const val OKAY = 0x59414b4f
         const val CLSE = 0x45534c43
         const val WRTE = 0x45545257
+        const val STLS = 0x534c5453
         private const val VERSION = 0x01000000
         private const val MAX_DATA = 256 * 1024
 
@@ -38,7 +40,7 @@ class AdbVerbindung private constructor(private val sock: Socket) : Closeable {
             val s = Socket()
             s.tcpNoDelay = true
             s.connect(InetSocketAddress(host, port), 10_000)
-            val v = AdbVerbindung(s)
+            val v = AdbVerbindung(s, host, port)
             try {
                 v.anmelden(schluessel, beiNachfrage)
             } catch (e: Exception) {
@@ -49,8 +51,11 @@ class AdbVerbindung private constructor(private val sock: Socket) : Closeable {
         }
     }
 
-    private val ein = DataInputStream(BufferedInputStream(sock.getInputStream(), 64 * 1024))
-    private val aus: OutputStream = sock.getOutputStream()
+    private var ein = DataInputStream(BufferedInputStream(sock.getInputStream(), 64 * 1024))
+    private var aus: OutputStream = sock.getOutputStream()
+    /** true = Verbindung läuft verschlüsselt (Kabelloses Debugging) */
+    var tls = false
+        private set
     private val stroeme = ConcurrentHashMap<Int, AdbStrom>()
     private val naechsteId = AtomicInteger(1)
     var maxDaten = 4096
@@ -100,8 +105,21 @@ class AdbVerbindung private constructor(private val sock: Socket) : Closeable {
                     geraeteInfo = String(n.daten).trim('\u0000')
                     break
                 }
+                STLS -> {
+                    // Kabelloses Debugging: ab hier TLS 1.3 mit unserem Zertifikat
+                    senden(STLS, VERSION, 0)
+                    val s = try {
+                        AdbTls.umschalten(sock, host, port, schluessel)
+                    } catch (e: Exception) {
+                        throw IOException("TLS abgelehnt – das Gerät ist noch nicht gekoppelt. Erst „Mit Kopplungscode koppeln“ oder QR-Code nutzen. (${e.message})")
+                    }
+                    sock = s
+                    ein = DataInputStream(BufferedInputStream(s.inputStream, 64 * 1024))
+                    aus = s.outputStream
+                    tls = true
+                }
                 AUTH -> {
-                    if (n.arg0 != 1) continue
+                    if (tls || n.arg0 != 1) continue
                     if (!signiert) {
                         signiert = true
                         senden(AUTH, 2, 0, AdbSchluessel.signieren(schluessel, n.daten))

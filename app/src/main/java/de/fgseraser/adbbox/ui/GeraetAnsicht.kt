@@ -44,6 +44,7 @@ import de.fgseraser.adbbox.Befehl
 import de.fgseraser.adbbox.GRUEN
 import de.fgseraser.adbbox.Geraet
 import de.fgseraser.adbbox.Hilfe
+import de.fgseraser.adbbox.Speicher
 import de.fgseraser.adbbox.adb.AdbSchluessel
 import de.fgseraser.adbbox.adb.AdbSync
 import de.fgseraser.adbbox.adb.AdbVerbindung
@@ -62,9 +63,20 @@ class Sitzung(val ctx: Context, val g: Geraet) {
     val ssh = Ssh(ctx, g)
     @Volatile var adb: AdbVerbindung? = null
 
+    @Volatile private var port = g.adbPort
+
     fun adb(beiNachfrage: () -> Unit = {}): AdbVerbindung {
         adb?.let { if (it.offen) return it }
-        val v = AdbVerbindung.verbinden(g.host, g.adbPort, AdbSchluessel.laden(ctx), beiNachfrage)
+        val v = try {
+            AdbVerbindung.verbinden(g.host, port, AdbSchluessel.laden(ctx), beiNachfrage)
+        } catch (e: java.net.ConnectException) {
+            // Kabelloses Debugging wechselt den Port bei jedem Einschalten – neuen Port suchen und merken
+            val neu = kotlinx.coroutines.runBlocking { de.fgseraser.adbbox.adb.AdbSuche.verbindungsPort(ctx, g.host) }
+            if (neu == null || neu == port) throw e
+            port = neu
+            Speicher.speichern(ctx, Speicher.geraete(ctx).map { if (it.id == g.id) it.copy(adbPort = neu) else it })
+            AdbVerbindung.verbinden(g.host, neu, AdbSchluessel.laden(ctx), beiNachfrage)
+        }
         adb = v
         return v
     }
@@ -80,7 +92,7 @@ class Sitzung(val ctx: Context, val g: Geraet) {
 fun adbFehlerText(e: Throwable): String {
     val m = e.message ?: e.toString()
     return if (m.contains("refused", true) || m.contains("ECONNREFUSED") || m.contains("timed out", true) || m.contains("failed to connect", true))
-        "ADB nicht erreichbar. Auf dem Gerät nach dem Neustart einmal per Kabel „adb tcpip 5555“ ausführen und USB-Debugging anlassen.\n($m)"
+        "ADB nicht erreichbar. Entweder auf dem Gerät nach dem Neustart einmal per Kabel „adb tcpip 5555“ ausführen – oder „Kabelloses Debugging“ einschalten und im Gerät bearbeiten koppeln (Kopplungscode oder QR-Code).\n($m)"
     else m
 }
 

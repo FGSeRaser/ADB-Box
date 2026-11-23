@@ -105,12 +105,21 @@ object Scan {
 @Composable
 fun ScanSeite(hinzufuegen: (Geraet) -> Unit, zurueck: () -> Unit) {
     BackHandler { zurueck() }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var kabellos by remember { mutableStateOf<List<de.fgseraser.adbbox.adb.AdbSuche.Dienst>>(emptyList()) }
     var funde by remember { mutableStateOf<List<Scan.Fund>>(emptyList()) }
     var fortschritt by remember { mutableStateOf(0f) }
     var laeuft by remember { mutableStateOf(false) }
     var lauf by remember { mutableStateOf(0) }
     val netze = remember { runCatching { Scan.eigeneNetze() }.getOrDefault(emptyList()) }
 
+    // Kabelloses Debugging (Android 11+) meldet sich per mDNS – mit dem echten, zufälligen Port
+    LaunchedEffect(lauf) {
+        kabellos = emptyList()
+        de.fgseraser.adbbox.adb.AdbSuche.mdns(ctx, de.fgseraser.adbbox.adb.AdbSuche.TYP_VERBINDEN, 10_000) { d ->
+            if (kabellos.none { it.host == d.host && it.port == d.port }) kabellos = kabellos + d
+        }
+    }
     LaunchedEffect(lauf) {
         laeuft = true
         funde = emptyList()
@@ -133,9 +142,21 @@ fun ScanSeite(hinzufuegen: (Geraet) -> Unit, zurueck: () -> Unit) {
                 LinearProgressIndicator(progress = { fortschritt }, modifier = Modifier.fillMaxWidth())
                 Text(if (laeuft) "Suche im WLAN … (${(fortschritt * 100).toInt()} %)" else "Fertig: ${funde.size} Gerät(e) gefunden",
                     modifier = Modifier.padding(top = 6.dp), fontWeight = FontWeight.Bold)
-                Text("Gesucht wird nach offenem ADB (5555) und SSH (8022/22). Über Tailscale lässt sich nicht scannen – " +
+                Text("Gesucht wird nach offenem ADB (5555), SSH (8022/22) und nach Geräten mit „Kabelloses Debugging“ (Android 11+, beliebiger Port). Noch nicht gekoppelte Geräte erst unter „Gerät bearbeiten“ koppeln. Über Tailscale lässt sich nicht scannen – " +
                     "dort trägst du die 100.x-Adresse aus der Tailscale-App ein. In der Geräteliste siehst du, ob sie erreichbar ist.",
                     color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+            }
+            items(kabellos, key = { "k" + it.host + it.port }) { d ->
+                Card(Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(d.host, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            Text(d.name, color = Color.LightGray, fontSize = 13.sp)
+                            Text("Kabelloses Debugging · ADB-Port ${d.port}", color = GRUEN, fontSize = 13.sp)
+                        }
+                        Button(onClick = { hinzufuegen(Geraet(name = d.name.substringBefore('-', d.name).take(20), host = d.host, adbPort = d.port)) }) { Text("Hinzufügen") }
+                    }
+                }
             }
             items(funde, key = { it.ip }) { f ->
                 Card(Modifier.fillMaxWidth()) {
